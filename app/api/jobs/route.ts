@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile } from 'fs/promises';
-import { join } from 'path';
 import { createJob } from '@/lib/supabase';
 import type { LanguagePair, TranslationStyle } from '@/types';
 
@@ -23,15 +21,14 @@ export async function POST(request: NextRequest) {
 
       const bytes = await file.arrayBuffer();
       const buffer = Buffer.from(bytes);
-      const tmpDir = '/tmp';
-      const tmpId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const filePath = join(tmpDir, `${tmpId}.pdf`);
-      await writeFile(filePath, buffer);
+      // Store PDF as base64 data URL in source_url (works across serverless invocations)
+      const base64 = buffer.toString('base64');
+      const dataUrl = `data:application/pdf;base64,${base64}`;
 
       const job = await createJob({
         source_type: 'pdf',
         source_name: file.name,
-        source_url: filePath,
+        source_url: dataUrl,
         status: 'queued',
         language_pair: languagePair,
         translation_style: translationStyle,

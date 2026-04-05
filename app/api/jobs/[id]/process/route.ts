@@ -1,5 +1,4 @@
 import { NextRequest } from 'next/server';
-import { readFile } from 'fs/promises';
 import { getJob, updateJob, createChunks, updateChunk, getChunks } from '@/lib/supabase';
 import { extractFromPdf, extractFromUrl } from '@/lib/extractor';
 import { chunkText } from '@/lib/chunker';
@@ -29,18 +28,13 @@ export async function POST(
           return;
         }
 
-        // If already completed or translating, skip
         if (job.status === 'completed') {
           send({ type: 'complete' });
           controller.close();
           return;
         }
 
-        // Resume from existing chunks if any
         const existingChunks = await getChunks(params.id);
-        const hasPendingChunks = existingChunks.some(
-          (c) => c.status === 'pending' || c.status === 'failed'
-        );
         const allDone = existingChunks.length > 0 && existingChunks.every(
           (c) => c.status === 'translated' || c.status === 'completed'
         );
@@ -54,9 +48,15 @@ export async function POST(
 
           let rawText = '';
           if (job.source_type === 'pdf') {
-            const filePath = job.source_url;
-            if (!filePath) throw new Error('PDF 파일 경로가 없습니다.');
-            const buffer = await readFile(filePath);
+            if (!job.source_url) throw new Error('PDF 데이터가 없습니다.');
+            let buffer: Buffer;
+            if (job.source_url.startsWith('data:application/pdf;base64,')) {
+              const base64 = job.source_url.split(',')[1];
+              buffer = Buffer.from(base64, 'base64');
+            } else {
+              const { readFile } = await import('fs/promises');
+              buffer = await readFile(job.source_url);
+            }
             rawText = await extractFromPdf(buffer);
           } else if (job.source_type === 'url') {
             if (!job.source_url) throw new Error('URL이 없습니다.');
@@ -97,19 +97,15 @@ export async function POST(
 
         send({ type: 'status', status: 'translating' });
 
-        // === STEP 3: Translate ===
         const totalChunks = chunks.length;
         let completedCount = chunks.filter(
           (c) => c.status === 'translated' || c.status === 'completed'
         ).length;
 
-        // Sort by index
         const sortedChunks = [...chunks].sort((a, b) => a.chunk_index - b.chunk_index);
-
         let prevContext = '';
 
         for (const chunk of sortedChunks) {
-          // Skip already translated
           if (chunk.status === 'translated' || chunk.status === 'completed') {
             prevContext = chunk.translated_text_draft
               ? chunk.translated_text_draft.slice(-300)
@@ -117,7 +113,6 @@ export async function POST(
             continue;
           }
 
-          // Skip non-pending (unless failed for retry)
           if (chunk.status !== 'pending' && chunk.status !== 'failed') {
             continue;
           }
@@ -143,18 +138,9 @@ export async function POST(
             completedCount++;
 
             const progress = Math.round((completedCount / totalChunks) * 100);
-            await updateJob(params.id, {
-              completed_chunks: completedCount,
-              progress,
-            });
+            await updateJob(params.id, { completed_chunks: completedCount, progress });
 
-            send({
-              type: 'progress',
-              progress,
-              completed: completedCount,
-              total: totalChunks,
-              status: 'translating',
-            });
+            send({ type: 'progress', progress, completed: completedCount, total: totalChunks, status: 'translating' });
           } catch (err) {
             const errMsg = String(err);
             await updateChunk(chunk.id, {
@@ -177,9 +163,7 @@ export async function POST(
         send({ type: 'complete' });
       } catch (err) {
         const errMsg = String(err);
-        try {
-          await updateJob(params.id, { status: 'failed' });
-        } catch { /* ignore */ }
+        try { await updateJob(params.id, { status: 'failed' }); } catch { /* ignore */ }
         send({ type: 'error', message: errMsg });
       } finally {
         controller.close();
