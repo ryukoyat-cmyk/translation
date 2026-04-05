@@ -1,8 +1,6 @@
-import OpenAI from 'openai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
 
 interface TranslateChunkParams {
   text: string;
@@ -50,7 +48,7 @@ export async function translateChunk(params: TranslateChunkParams): Promise<stri
       ? `\n\n용어집 (반드시 아래 용어 번역을 우선 적용하세요):\n${glossaryEntries.map(([k, v]) => `- ${k} → ${v}`).join('\n')}`
       : '';
 
-  const systemPrompt = `You are a professional translator. Translate faithfully without omissions, summaries, or meaning changes. Apply glossary terms first.
+  const systemInstruction = `You are a professional translator. Translate faithfully without omissions, summaries, or meaning changes. Apply glossary terms first.
 
 번역 방향: ${source} → ${target}
 번역 스타일: ${styleInstruction}${glossarySection}
@@ -62,18 +60,16 @@ Rules:
 4. Apply glossary terms consistently throughout.
 5. Return ONLY the translated text, nothing else.`;
 
-  const contextSection = context
+  const userMessage = context
     ? `[이전 문단 맥락 (참고용, 번역하지 마세요)]:\n${context}\n\n[번역할 텍스트]:\n${text}`
     : text;
 
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: contextSection },
-    ],
-    temperature: 0.3,
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-2.0-flash',
+    systemInstruction,
+    generationConfig: { temperature: 0.3 },
   });
 
-  return completion.choices[0]?.message?.content?.trim() || '';
+  const result = await model.generateContent(userMessage);
+  return result.response.text().trim();
 }
