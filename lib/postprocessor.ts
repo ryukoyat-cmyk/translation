@@ -1,7 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import type { Chunk, TranslationSettings } from '@/types';
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
+function getGenAI() { return new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!); }
 
 function getStyleInstruction(style: string, languagePair: string): string {
   const isToKorean = languagePair === 'en->ko';
@@ -51,7 +51,7 @@ Post-editing guidelines:
 5. 원문의 의미를 변경하지 마세요.
 6. 수정한 번역문만 반환하세요 (설명이나 주석 없이).`;
 
-  const model = genAI.getGenerativeModel({
+  const model = getGenAI().getGenerativeModel({
     model: 'gemini-2.0-flash',
     systemInstruction,
     generationConfig: { temperature: 0.2 },

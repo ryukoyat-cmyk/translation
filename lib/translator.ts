@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
+function getGenAI() { return new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!); }
 
 interface TranslateChunkParams {
   text: string;
@@ -64,7 +64,7 @@ Rules:
     ? `[이전 문단 맥락 (참고용, 번역하지 마세요)]:\n${context}\n\n[번역할 텍스트]:\n${text}`
     : text;
 
-  const model = genAI.getGenerativeModel({
+  const model = getGenAI().getGenerativeModel({
     model: 'gemini-2.0-flash',
     systemInstruction,
     generationConfig: { temperature: 0.3 },
