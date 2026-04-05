@@ -1,9 +1,26 @@
-import OpenAI from 'openai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import type { Chunk, TranslationSettings } from '@/types';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
+
+function getStyleInstruction(style: string, languagePair: string): string {
+  const isToKorean = languagePair === 'en->ko';
+
+  switch (style) {
+    case 'literal':
+      return '직역체로 번역하되, 원문의 단어 선택과 문장 구조를 최대한 유지하세요.';
+    case 'natural':
+      return isToKorean
+        ? '자연스러운 한국어로 번역하세요. 읽기 쉽고 자연스러운 표현을 사용하세요.'
+        : '자연스러운 영어로 번역하세요. 읽기 쉽고 자연스러운 표현을 사용하세요.';
+    case 'academic':
+      return '학술 논문 문체로 번역하세요. 전문 용어를 정확히 사용하고 격식체를 유지하세요.';
+    case 'formal':
+      return '공식 문서/공문 문체로 번역하세요. 격식체와 정중한 표현을 사용하세요.';
+    default:
+      return '자연스럽게 번역하세요.';
+  }
+}
 
 export async function postprocessChunks(
   chunks: Chunk[],
@@ -21,7 +38,7 @@ export async function postprocessChunks(
 
   const styleInstruction = getStyleInstruction(translation_style, language_pair);
 
-  const systemPrompt = `You are a professional post-editor and translator. Your task is to refine and improve a translated text chunk while maintaining consistency with the full document.
+  const systemInstruction = `You are a professional post-editor and translator. Your task is to refine and improve a translated text chunk while maintaining consistency with the full document.
 
 번역 방향: ${language_pair}
 번역 스타일: ${styleInstruction}${glossarySection}
@@ -33,6 +50,12 @@ Post-editing guidelines:
 4. 자연스러운 ${targetLang} 표현으로 다듬으세요.
 5. 원문의 의미를 변경하지 마세요.
 6. 수정한 번역문만 반환하세요 (설명이나 주석 없이).`;
+
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-2.0-flash',
+    systemInstruction,
+    generationConfig: { temperature: 0.2 },
+  });
 
   const results: string[] = [];
 
@@ -53,16 +76,8 @@ Post-editing guidelines:
     const userMessage = `[전체 문서 번역 초안 (참고용)]:\n${fullDraftContext}\n\n---\n\n[현재 후검수할 청크 ${i + 1}${chunk.section_title ? ` - ${chunk.section_title}` : ''}]:\n원문: ${chunk.original_text}\n\n번역 초안: ${draftText}\n\n위 번역 초안을 후검수하여 개선된 번역문만 반환하세요.`;
 
     try {
-      const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userMessage },
-        ],
-        temperature: 0.2,
-      });
-
-      results.push(completion.choices[0]?.message?.content?.trim() || draftText);
+      const result = await model.generateContent(userMessage);
+      results.push(result.response.text().trim() || draftText);
     } catch (error) {
       // If postprocessing fails for a chunk, keep the draft
       console.error(`Failed to postprocess chunk ${i}:`, error);
@@ -71,23 +86,4 @@ Post-editing guidelines:
   }
 
   return results;
-}
-
-function getStyleInstruction(style: string, languagePair: string): string {
-  const isToKorean = languagePair === 'en->ko';
-
-  switch (style) {
-    case 'literal':
-      return '직역체로 번역하되, 원문의 단어 선택과 문장 구조를 최대한 유지하세요.';
-    case 'natural':
-      return isToKorean
-        ? '자연스러운 한국어로 번역하세요. 읽기 쉽고 자연스러운 표현을 사용하세요.'
-        : '자연스러운 영어로 번역하세요. 읽기 쉽고 자연스러운 표현을 사용하세요.';
-    case 'academic':
-      return '학술 논문 문체로 번역하세요. 전문 용어를 정확히 사용하고 격식체를 유지하세요.';
-    case 'formal':
-      return '공식 문서/공문 문체로 번역하세요. 격식체와 정중한 표현을 사용하세요.';
-    default:
-      return '자연스럽게 번역하세요.';
-  }
 }
