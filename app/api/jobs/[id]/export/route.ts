@@ -24,13 +24,14 @@ export async function GET(
     }
 
     const buffer = await generateDocx(job, chunks, version);
+    const uint8Array = new Uint8Array(buffer);
 
     const safeName = (job.source_name || 'translation')
       .replace(/[^a-zA-Z0-9가-힣_.-]/g, '_')
       .slice(0, 50);
     const filename = `${safeName}_${version}.docx`;
 
-    return new NextResponse(buffer, {
+    return new NextResponse(uint8Array, {
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'Content-Disposition': `attachment; filename="${encodeURIComponent(filename)}"`,
